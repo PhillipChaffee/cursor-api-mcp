@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 
-from cursor_api_mcp.tools._common import client, error_payload
+from cursor_api_mcp.tools._common import (
+    client,
+    error_payload,
+    parse_json_list,
+    parse_json_object,
+)
+
+# Re-export under previous private names for existing tests/imports.
+_parse_json_list = parse_json_list
+_parse_json_object = parse_json_object
 
 _CREATE_AGENT_RESERVED_EXTRA_KEYS = frozenset(
     {
@@ -22,52 +30,6 @@ _CREATE_AGENT_RESERVED_EXTRA_KEYS = frozenset(
         "agentId",
     }
 )
-
-
-def _parse_json_object(
-    raw: str | dict[str, Any] | None,
-    *,
-    field_name: str,
-) -> dict[str, Any] | None:
-    """Parse a JSON object from a string, or accept an already-decoded mapping."""
-    if raw is None or raw == "":
-        return None
-    if isinstance(raw, dict):
-        return raw
-    if not isinstance(raw, str):
-        raise ValueError(f"{field_name} must be a JSON object string or object")
-    if raw.strip() == "":
-        return None
-    try:
-        value = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"{field_name} must be valid JSON: {exc}") from exc
-    if not isinstance(value, dict):
-        raise ValueError(f"{field_name} must be a JSON object")
-    return value
-
-
-def _parse_json_list(
-    raw: str | list[Any] | None,
-    *,
-    field_name: str,
-) -> list[Any] | None:
-    """Parse a JSON array from a string, or accept an already-decoded list."""
-    if raw is None or raw == "":
-        return None
-    if isinstance(raw, list):
-        return raw
-    if not isinstance(raw, str):
-        raise ValueError(f"{field_name} must be a JSON array string or array")
-    if raw.strip() == "":
-        return None
-    try:
-        value = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"{field_name} must be valid JSON: {exc}") from exc
-    if not isinstance(value, list):
-        raise ValueError(f"{field_name} must be a JSON array")
-    return value
 
 
 def _redact_worker_token_response(payload: Any) -> Any:
@@ -94,6 +56,7 @@ def register_write_tools(mcp: MCPServer) -> None:
         work_on_current_branch: bool = False,
         mode: str | None = None,
         agent_id: str | None = None,
+        prompt_images_json: str | list[Any] | None = None,
         mcp_servers_json: str | list[Any] | None = None,
         extra_json: str | dict[str, Any] | None = None,
     ) -> dict[str, Any]:
@@ -110,6 +73,8 @@ def register_write_tools(mcp: MCPServer) -> None:
             work_on_current_branch: Push to starting ref instead of a new branch.
             mode: Initial mode: agent or plan.
             agent_id: Optional client-supplied id (bc-...) for idempotent create.
+            prompt_images_json: Optional JSON array of prompt images ({data,mimeType}
+                or {url}).
             mcp_servers_json: Optional JSON array (string or list) of inline MCP servers.
             extra_json: Optional JSON object (string or object) merged into the
                 request body for advanced fields. Cannot overwrite keys already set
@@ -120,7 +85,14 @@ def register_write_tools(mcp: MCPServer) -> None:
                 "error": True,
                 "message": "repo_url is required when pr_url or starting_ref is set",
             }
-        body: dict[str, Any] = {"prompt": {"text": prompt_text}}
+        prompt: dict[str, Any] = {"text": prompt_text}
+        try:
+            images = _parse_json_list(prompt_images_json, field_name="prompt_images_json")
+            if images is not None:
+                prompt["images"] = images
+        except Exception as exc:
+            return error_payload(exc)
+        body: dict[str, Any] = {"prompt": prompt}
         if name is not None:
             body["name"] = name
         if model_id is not None:
@@ -168,7 +140,9 @@ def register_write_tools(mcp: MCPServer) -> None:
         agent_id: str,
         prompt_text: str,
         mode: str | None = None,
+        prompt_images_json: str | list[Any] | None = None,
         mcp_servers_json: str | list[Any] | None = None,
+        extra_json: str | dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Send a follow-up prompt to an active agent (POST /v1/agents/{id}/runs).
 
@@ -176,15 +150,36 @@ def register_write_tools(mcp: MCPServer) -> None:
             agent_id: Agent id (for example bc-...).
             prompt_text: Follow-up instruction text.
             mode: Optional mode override: agent or plan.
+            prompt_images_json: Optional JSON array of prompt images.
             mcp_servers_json: Optional JSON array of MCP servers for this run.
+            extra_json: Optional JSON object merged into the body. Cannot overwrite
+                prompt, mcpServers, or mode when those were set by typed args.
         """
-        body: dict[str, Any] = {"prompt": {"text": prompt_text}}
+        prompt: dict[str, Any] = {"text": prompt_text}
+        body: dict[str, Any] = {"prompt": prompt}
         if mode is not None:
             body["mode"] = mode
         try:
+            images = _parse_json_list(prompt_images_json, field_name="prompt_images_json")
+            if images is not None:
+                prompt["images"] = images
             mcp_servers = _parse_json_list(mcp_servers_json, field_name="mcp_servers_json")
             if mcp_servers is not None:
                 body["mcpServers"] = mcp_servers
+            extra = _parse_json_object(extra_json, field_name="extra_json")
+            if extra:
+                conflicts = sorted(
+                    key for key in {"prompt", "mcpServers", "mode"}.intersection(extra) if key in body
+                )
+                if conflicts:
+                    return {
+                        "error": True,
+                        "message": (
+                            "extra_json cannot overwrite keys already set by typed "
+                            f"arguments: {conflicts}"
+                        ),
+                    }
+                body.update(extra)
             return client().post_json(f"/v1/agents/{agent_id}/runs", body=body)
         except Exception as exc:
             return error_payload(exc)

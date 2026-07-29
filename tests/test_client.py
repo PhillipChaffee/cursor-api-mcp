@@ -64,6 +64,23 @@ def test_error_response_non_dict_json(monkeypatch: pytest.MonkeyPatch) -> None:
     assert exc_info.value.status_code == 500
 
 
+def test_get_text(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_get(self: httpx.Client, url: str, **kwargs: object) -> httpx.Response:
+        captured["url"] = url
+        captured["headers"] = kwargs.get("headers")
+        return httpx.Response(200, text="event: done\ndata: {}\n\n")
+
+    monkeypatch.setattr(httpx.Client, "get", fake_get)
+    client = CursorApiClient(api_key="crsr_test")
+    text = client.get_text("/v1/agents/bc-1/runs/run-1/stream")
+    assert "event: done" in text
+    headers = captured["headers"]
+    assert isinstance(headers, dict)
+    assert headers["Accept"] == "text/event-stream"
+
+
 def test_delete_and_patch_methods(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[str] = []
 

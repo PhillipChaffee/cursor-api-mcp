@@ -82,6 +82,28 @@ class CursorApiClient:
         """DELETE a Cursor API path."""
         return self._request("DELETE", path, params=params, json_body=body)
 
+    def get_text(
+        self,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+        accept: str = "text/event-stream",
+        timeout_seconds: float | None = None,
+    ) -> str:
+        """GET a path and return the raw response body as text."""
+        url = f"{self._base_url}{path if path.startswith('/') else f'/{path}'}"
+        clean_params = (
+            {key: value for key, value in params.items() if value is not None}
+            if params
+            else None
+        )
+        headers = {**self._headers, "Accept": accept}
+        with httpx.Client(timeout=timeout_seconds or self._timeout) as http_client:
+            response = http_client.get(url, headers=headers, params=clean_params)
+        if response.status_code >= 400:
+            raise CursorApiError(response.status_code, response.text)
+        return response.text
+
     def _request(
         self,
         method: str,
@@ -96,8 +118,8 @@ class CursorApiClient:
             if params
             else None
         )
-        with httpx.Client(timeout=self._timeout) as client:
-            response = client.request(
+        with httpx.Client(timeout=self._timeout) as http_client:
+            response = http_client.request(
                 method,
                 url,
                 headers=self._headers,

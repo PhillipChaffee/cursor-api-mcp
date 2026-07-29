@@ -55,8 +55,61 @@ def test_read_only_server_omits_write_tools() -> None:
     full_names = {tool.name for tool in asyncio.run(full.list_tools())}
 
     assert "list_agents" in read_names
+    assert "download_agent_artifact" in read_names
+    assert "stream_agent_run" in read_names
+    assert "get_team_analytics" in read_names
+    assert "list_ai_code_commits" in read_names
+    assert "list_bugbot_repos" in read_names
+    assert "list_private_workers" in read_names
+    assert "get_organization_pooled_usage" in read_names
     assert "create_agent" not in read_names
     assert "delete_agent" not in read_names
+    assert "trigger_bugbot_review" not in read_names
+    assert "add_organization_group_members" not in read_names
     assert "create_agent" in full_names
     assert "delete_agent" in full_names
+    assert "trigger_bugbot_review" in full_names
+    assert "add_organization_group_members" in full_names
     assert read_names < full_names
+
+
+def test_team_analytics_rejects_unknown_metric(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from cursor_api_mcp.tools import analytics as analytics_mod
+
+    mock_client = MagicMock()
+    monkeypatch.setattr(analytics_mod, "client", lambda: mock_client)
+    server = build_server(ServerConfig(read_only=True))
+    result = asyncio.run(
+        server.call_tool("get_team_analytics", {"metric": "not-a-metric"})
+    )
+    structured = result.structured_content
+    assert isinstance(structured, dict)
+    assert structured["error"] is True
+    assert "Allowed" in structured["message"]
+    mock_client.get.assert_not_called()
+
+
+def test_download_agent_artifact_passes_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from cursor_api_mcp.tools import read as read_mod
+
+    mock_client = MagicMock()
+    mock_client.get.return_value = {"url": "https://signed.example/a"}
+    monkeypatch.setattr(read_mod, "client", lambda: mock_client)
+    server = build_server(ServerConfig(read_only=True))
+    result = asyncio.run(
+        server.call_tool(
+            "download_agent_artifact",
+            {"agent_id": "bc-1", "path": "artifacts/shot.png"},
+        )
+    )
+    structured = result.structured_content
+    assert isinstance(structured, dict)
+    assert structured["url"] == "https://signed.example/a"
+    mock_client.get.assert_called_once_with(
+        "/v1/agents/bc-1/artifacts/download",
+        params={"path": "artifacts/shot.png"},
+    )

@@ -132,6 +132,47 @@ def register_read_tools(mcp: MCPServer) -> None:
         except Exception as exc:
             return error_payload(exc)
 
+    def download_agent_artifact(agent_id: str, path: str) -> dict[str, Any]:
+        """Get a 15-minute presigned URL for an artifact (GET .../artifacts/download).
+
+        Args:
+            agent_id: Agent id (for example bc-...).
+            path: Relative artifact path from list_agent_artifacts
+                (for example artifacts/screenshot.png).
+        """
+        try:
+            return client().get(
+                f"/v1/agents/{agent_id}/artifacts/download",
+                params={"path": path},
+            )
+        except Exception as exc:
+            return error_payload(exc)
+
+    def stream_agent_run(
+        agent_id: str,
+        run_id: str,
+        timeout_seconds: float = 60.0,
+    ) -> dict[str, Any]:
+        """Fetch SSE events for a run (GET .../runs/{runId}/stream).
+
+        Collects the stream body until the server closes or the timeout elapses.
+        Prefer polling get_agent_run for long-lived watches.
+
+        Args:
+            agent_id: Agent id (for example bc-...).
+            run_id: Run id (for example run-...).
+            timeout_seconds: HTTP timeout for the stream request (default 60).
+        """
+        try:
+            text = client().get_text(
+                f"/v1/agents/{agent_id}/runs/{run_id}/stream",
+                accept="text/event-stream",
+                timeout_seconds=timeout_seconds,
+            )
+            return {"events_text": text}
+        except Exception as exc:
+            return error_payload(exc)
+
     def list_team_members() -> dict[str, Any]:
         """List team members (GET /teams/members). Requires a Team Admin API key."""
         try:
@@ -335,8 +376,10 @@ def register_read_tools(mcp: MCPServer) -> None:
         get_agent,
         list_agent_runs,
         get_agent_run,
+        stream_agent_run,
         get_agent_usage,
         list_agent_artifacts,
+        download_agent_artifact,
         list_team_members,
         get_audit_logs,
         get_daily_usage_data,

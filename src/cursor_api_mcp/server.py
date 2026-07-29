@@ -7,7 +7,17 @@ import argparse
 from mcp.server.mcpserver import MCPServer
 
 from cursor_api_mcp.config import ServerConfig
-from cursor_api_mcp.tools import register_read_tools, register_write_tools
+from cursor_api_mcp.tools import (
+    register_ai_code_tools,
+    register_analytics_tools,
+    register_bugbot_read_tools,
+    register_bugbot_write_tools,
+    register_fleet_tools,
+    register_org_read_tools,
+    register_org_write_tools,
+    register_read_tools,
+    register_write_tools,
+)
 
 
 def build_server(config: ServerConfig) -> MCPServer:
@@ -18,21 +28,29 @@ def build_server(config: ServerConfig) -> MCPServer:
         instructions=(
             f"Cursor HTTP API MCP ({mode}). "
             "Cloud Agents tools work with a user API key on all plans. "
-            "Team Admin / Organization tools require Enterprise keys with the "
-            "appropriate scopes. "
+            "Team Admin / Organization / Analytics / Bugbot / AI Code Tracking "
+            "tools require Enterprise keys with the appropriate scopes. "
+            "Fleet (private-workers) tools need the pool service-account key. "
             + (
                 "Write tools are disabled in this session."
                 if config.read_only
                 else (
-                    "Write tools can create/cancel/archive/delete agents and change "
-                    "team/org settings — use carefully."
+                    "Write tools can create/cancel/archive/delete agents, change "
+                    "team/org settings, and mutate Bugbot config — use carefully."
                 )
             )
         ),
     )
     register_read_tools(mcp)
+    register_fleet_tools(mcp)
+    register_org_read_tools(mcp)
+    register_analytics_tools(mcp)
+    register_ai_code_tools(mcp)
+    register_bugbot_read_tools(mcp)
     if not config.read_only:
         register_write_tools(mcp)
+        register_org_write_tools(mcp)
+        register_bugbot_write_tools(mcp)
     return mcp
 
 
