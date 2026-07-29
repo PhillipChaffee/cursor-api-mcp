@@ -126,6 +126,7 @@ Organization tools need **Enterprise** keys with the right scopes
 - Use the narrowest API key scope that covers your tools.
 - Never commit `.env` or paste API keys into chat / git.
 - `/v1/repositories` is rate-limited (~1/min); avoid polling loops.
+- `create_worker_token` redacts `accessToken` in tool results (mint raw JWTs outside MCP).
 
 ## Development
 

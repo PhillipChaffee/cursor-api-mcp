@@ -108,13 +108,16 @@ class CursorApiClient:
             message = response.text
             try:
                 payload = response.json()
+            except ValueError:
+                payload = None
+            if isinstance(payload, dict):
                 message = str(
                     payload.get("message")
                     or payload.get("error")
                     or payload
                 )
-            except ValueError:
-                pass
+            elif payload is not None:
+                message = str(payload)
             raise CursorApiError(response.status_code, message)
         if response.status_code == 204 or not response.content:
             return {"ok": True, "status_code": response.status_code}

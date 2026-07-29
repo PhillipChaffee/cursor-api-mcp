@@ -53,6 +53,17 @@ def test_error_response_raises_cursor_api_error(monkeypatch: pytest.MonkeyPatch)
     assert exc_info.value.status_code == 403
 
 
+def test_error_response_non_dict_json(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_request(self: httpx.Client, method: str, url: str, **kwargs: object) -> httpx.Response:
+        return httpx.Response(500, json=["unexpected", "shape"])
+
+    monkeypatch.setattr(httpx.Client, "request", fake_request)
+    client = CursorApiClient(api_key="crsr_test")
+    with pytest.raises(CursorApiError, match="unexpected") as exc_info:
+        client.get("/v1/me")
+    assert exc_info.value.status_code == 500
+
+
 def test_delete_and_patch_methods(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[str] = []
 

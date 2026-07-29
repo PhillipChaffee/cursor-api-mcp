@@ -192,6 +192,11 @@ def register_read_tools(mcp: MCPServer) -> None:
             page: Optional 1-indexed page for all-members mode.
             page_size: Optional page size for all-members mode.
         """
+        if (page is None) != (page_size is None):
+            return {
+                "error": True,
+                "message": "page and page_size must both be set, or both omitted",
+            }
         body: dict[str, Any] = {
             "startDate": start_date_ms,
             "endDate": end_date_ms,

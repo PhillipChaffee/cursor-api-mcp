@@ -9,9 +9,34 @@ from mcp.server.mcpserver import MCPServer
 
 from cursor_api_mcp.tools._common import client, error_payload
 
+_CREATE_AGENT_RESERVED_EXTRA_KEYS = frozenset(
+    {
+        "prompt",
+        "model",
+        "repos",
+        "name",
+        "mcpServers",
+        "autoCreatePR",
+        "workOnCurrentBranch",
+        "mode",
+        "agentId",
+    }
+)
 
-def _parse_json_object(raw: str | None, *, field_name: str) -> dict[str, Any] | None:
-    if raw is None or raw.strip() == "":
+
+def _parse_json_object(
+    raw: str | dict[str, Any] | None,
+    *,
+    field_name: str,
+) -> dict[str, Any] | None:
+    """Parse a JSON object from a string, or accept an already-decoded mapping."""
+    if raw is None or raw == "":
+        return None
+    if isinstance(raw, dict):
+        return raw
+    if not isinstance(raw, str):
+        raise ValueError(f"{field_name} must be a JSON object string or object")
+    if raw.strip() == "":
         return None
     try:
         value = json.loads(raw)
@@ -22,8 +47,19 @@ def _parse_json_object(raw: str | None, *, field_name: str) -> dict[str, Any] | 
     return value
 
 
-def _parse_json_list(raw: str | None, *, field_name: str) -> list[Any] | None:
-    if raw is None or raw.strip() == "":
+def _parse_json_list(
+    raw: str | list[Any] | None,
+    *,
+    field_name: str,
+) -> list[Any] | None:
+    """Parse a JSON array from a string, or accept an already-decoded list."""
+    if raw is None or raw == "":
+        return None
+    if isinstance(raw, list):
+        return raw
+    if not isinstance(raw, str):
+        raise ValueError(f"{field_name} must be a JSON array string or array")
+    if raw.strip() == "":
         return None
     try:
         value = json.loads(raw)
@@ -34,10 +70,18 @@ def _parse_json_list(raw: str | None, *, field_name: str) -> list[Any] | None:
     return value
 
 
+def _redact_worker_token_response(payload: Any) -> Any:
+    """Return worker-token API payload without exposing accessToken to MCP clients."""
+    if not isinstance(payload, dict) or "accessToken" not in payload:
+        return payload
+    redacted = dict(payload)
+    redacted["accessToken"] = "[redacted]"
+    redacted["accessTokenRedacted"] = True
+    return redacted
+
+
 def register_write_tools(mcp: MCPServer) -> None:
     """Register mutating tools on ``mcp`` (omitted in read-only mode)."""
-
-    # -- Cloud Agents -------------------------------------------------
 
     def create_agent(
         prompt_text: str,
@@ -50,8 +94,8 @@ def register_write_tools(mcp: MCPServer) -> None:
         work_on_current_branch: bool = False,
         mode: str | None = None,
         agent_id: str | None = None,
-        mcp_servers_json: str | None = None,
-        extra_json: str | None = None,
+        mcp_servers_json: str | list[Any] | None = None,
+        extra_json: str | dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Create a Cloud Agent and enqueue its initial run (POST /v1/agents).
 
@@ -66,10 +110,16 @@ def register_write_tools(mcp: MCPServer) -> None:
             work_on_current_branch: Push to starting ref instead of a new branch.
             mode: Initial mode: agent or plan.
             agent_id: Optional client-supplied id (bc-...) for idempotent create.
-            mcp_servers_json: Optional JSON array of inline MCP server definitions.
-            extra_json: Optional JSON object merged into the request body for
-                advanced fields (env, envVars, customSubagents, model.params, ...).
+            mcp_servers_json: Optional JSON array (string or list) of inline MCP servers.
+            extra_json: Optional JSON object (string or object) merged into the
+                request body for advanced fields. Cannot overwrite keys already set
+                by typed args (for model.params, omit model_id and pass full model).
         """
+        if (pr_url is not None or starting_ref is not None) and repo_url is None:
+            return {
+                "error": True,
+                "message": "repo_url is required when pr_url or starting_ref is set",
+            }
         body: dict[str, Any] = {"prompt": {"text": prompt_text}}
         if name is not None:
             body["name"] = name
@@ -96,6 +146,19 @@ def register_write_tools(mcp: MCPServer) -> None:
                 body["mcpServers"] = mcp_servers
             extra = _parse_json_object(extra_json, field_name="extra_json")
             if extra:
+                conflicts = sorted(
+                    key
+                    for key in _CREATE_AGENT_RESERVED_EXTRA_KEYS.intersection(extra)
+                    if key in body
+                )
+                if conflicts:
+                    return {
+                        "error": True,
+                        "message": (
+                            "extra_json cannot overwrite keys already set by typed "
+                            f"arguments: {conflicts}"
+                        ),
+                    }
                 body.update(extra)
             return client().post_json("/v1/agents", body=body)
         except Exception as exc:
@@ -105,7 +168,7 @@ def register_write_tools(mcp: MCPServer) -> None:
         agent_id: str,
         prompt_text: str,
         mode: str | None = None,
-        mcp_servers_json: str | None = None,
+        mcp_servers_json: str | list[Any] | None = None,
     ) -> dict[str, Any]:
         """Send a follow-up prompt to an active agent (POST /v1/agents/{id}/runs).
 
@@ -178,6 +241,7 @@ def register_write_tools(mcp: MCPServer) -> None:
         """Mint a one-hour user-scoped worker token (POST /v1/sub-tokens).
 
         Requires a service-account API key. Provide exactly one of email or user id.
+        The accessToken value is redacted in the tool result.
 
         Args:
             for_user_email: Active team member email.
@@ -194,11 +258,11 @@ def register_write_tools(mcp: MCPServer) -> None:
         if for_user_id is not None:
             body["forUserId"] = for_user_id
         try:
-            return client().post_json("/v1/sub-tokens", body=body)
+            return _redact_worker_token_response(
+                client().post_json("/v1/sub-tokens", body=body)
+            )
         except Exception as exc:
             return error_payload(exc)
-
-    # -- Team Admin ---------------------------------------------------
 
     def set_user_spend_limit(
         user_email: str,
@@ -248,7 +312,7 @@ def register_write_tools(mcp: MCPServer) -> None:
         except Exception as exc:
             return error_payload(exc)
 
-    def upsert_repo_blocklists(repos_json: str) -> dict[str, Any]:
+    def upsert_repo_blocklists(repos_json: str | list[Any]) -> dict[str, Any]:
         """Upsert repository blocklist patterns (POST .../repos/upsert).
 
         Args:
@@ -337,7 +401,10 @@ def register_write_tools(mcp: MCPServer) -> None:
         except Exception as exc:
             return error_payload(exc)
 
-    def add_billing_group_members(group_id: str, user_ids_json: str) -> dict[str, Any]:
+    def add_billing_group_members(
+        group_id: str,
+        user_ids_json: str | list[Any],
+    ) -> dict[str, Any]:
         """Add members to a billing group (POST /teams/groups/{id}/members).
 
         Args:
@@ -355,7 +422,10 @@ def register_write_tools(mcp: MCPServer) -> None:
         except Exception as exc:
             return error_payload(exc)
 
-    def remove_billing_group_members(group_id: str, user_ids_json: str) -> dict[str, Any]:
+    def remove_billing_group_members(
+        group_id: str,
+        user_ids_json: str | list[Any],
+    ) -> dict[str, Any]:
         """Remove members from a billing group (DELETE /teams/groups/{id}/members).
 
         Args:
@@ -373,11 +443,9 @@ def register_write_tools(mcp: MCPServer) -> None:
         except Exception as exc:
             return error_payload(exc)
 
-    # -- Organization Admin -------------------------------------------
-
     def sync_organization_team_memberships(
         organization_id: str,
-        users_json: str,
+        users_json: str | list[Any],
     ) -> dict[str, Any]:
         """Sync org users onto linked teams (POST /organizations/team-memberships/sync).
 
