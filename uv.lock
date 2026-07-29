@@ -231,7 +231,7 @@ wheels = [
 ]
 
 [[package]]
-name = "cursor-api-readonly-mcp"
+name = "cursor-api-mcp"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
@@ -239,7 +239,7 @@ dependencies = [
     { name = "mcp", extra = ["cli"] },
 ]
 
-[package.dev-dependencies]
+[package.optional-dependencies]
 dev = [
     { name = "pytest" },
 ]
@@ -248,10 +248,9 @@ dev = [
 requires-dist = [
     { name = "httpx", specifier = ">=0.28.0" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.9.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
 ]
-
-[package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=9.1.1" }]
+provides-extras = ["dev"]
 
 [[package]]
 name = "h11"

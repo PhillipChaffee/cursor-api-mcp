@@ -1,25 +1,46 @@
 [project]
-name = "cursor-api-readonly-mcp"
+name = "cursor-api-mcp"
 version = "0.1.0"
-description = "Read-only MCP server for the Cursor HTTP APIs (Cloud Agents + Admin)."
+description = "MCP server for the Cursor HTTP APIs with optional read-only mode."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Phillip Chaffee" }]
+keywords = ["mcp", "cursor", "api", "model-context-protocol"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+]
 dependencies = [
   "httpx>=0.28.0",
   "mcp[cli]>=1.9.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/PhillipChaffee/cursor-api-mcp"
+Repository = "https://github.com/PhillipChaffee/cursor-api-mcp"
+Issues = "https://github.com/PhillipChaffee/cursor-api-mcp/issues"
+
 [project.scripts]
-cursor-api-readonly-mcp = "cursor_api_readonly_mcp.server:main"
+cursor-api-mcp = "cursor_api_mcp.server:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/cursor_api_readonly_mcp"]
+packages = ["src/cursor_api_mcp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
 
 [tool.ruff]
 line-length = 100
@@ -27,8 +48,3 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
-
-[dependency-groups]
-dev = [
-    "pytest>=9.1.1",
-]

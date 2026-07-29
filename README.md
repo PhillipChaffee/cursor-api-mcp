@@ -1,48 +1,50 @@
-# cursor-api-readonly-mcp
+# cursor-api-mcp
 
-Read-only [MCP](https://modelcontextprotocol.io/) server for [Cursor HTTP APIs](https://cursor.com/docs/api).
+[MCP](https://modelcontextprotocol.io/) server for the [Cursor HTTP APIs](https://cursor.com/docs/api).
 
-It exposes **fetch-only** tools. There are no tools that create, cancel, archive,
-delete, sync memberships, or change spend limits / blocklists.
+By default the server exposes **read and write** tools (Cloud Agents + Team/Org Admin).
+Pass `--read-only` (or set `CURSOR_API_READ_ONLY=true`) to register only fetch/query tools.
 
-## What it covers
-
-| Area | Tools | Key type |
-|------|--------|----------|
-| Cloud Agents | `get_api_key_info`, `list_models`, `list_repositories`, `list_agents`, `get_agent`, `list_agent_runs`, `get_agent_run`, `get_agent_usage`, `list_agent_artifacts` | User API key (all plans) |
-| Team Admin | `list_team_members`, `get_audit_logs`, `get_daily_usage_data`, `get_spending_data`, `get_usage_events`, `list_team_repo_blocklists`, `list_billing_groups`, `get_billing_group` | Team Admin key (Enterprise) |
-| Organization | `list_organization_members` | Org key with `members:read`+ (Enterprise) |
-
-Some Admin “get” endpoints use `POST` with a JSON body in Cursor’s API. Those are
-still treated as read-only here (no mutations).
-
-## Setup
-
-1. Create an API key at [cursor.com/dashboard/api](https://cursor.com/dashboard/api).
-   Prefer the narrowest scope (`members:read` for org membership reads).
-2. Copy `.env.example` → `.env` and set `CURSOR_API_KEY` (optional for local runs;
-   Cursor MCP config usually injects the env var instead).
+## Install
 
 ```bash
-cd /Users/phillipchaffee/git/cursor-api-readonly-mcp
+git clone https://github.com/PhillipChaffee/cursor-api-mcp.git
+cd cursor-api-mcp
 uv sync
-CURSOR_API_KEY=crsr_... uv run cursor-api-readonly-mcp
+```
+
+Create an API key at [cursor.com/dashboard/api](https://cursor.com/dashboard/api).
+
+## Run
+
+```bash
+# Full access (read + write)
+CURSOR_API_KEY=crsr_... uv run cursor-api-mcp
+
+# Read-only (write tools are not registered)
+CURSOR_API_KEY=crsr_... uv run cursor-api-mcp --read-only
+
+# Same via env
+CURSOR_API_KEY=crsr_... CURSOR_API_READ_ONLY=true uv run cursor-api-mcp
 ```
 
 ## Cursor MCP config
 
-Merge into `~/.cursor/mcp.json` (do not replace existing servers):
+Merge into `~/.cursor/mcp.json` (do not replace existing servers).
+
+**Read-only (recommended default):**
 
 ```json
 {
   "mcpServers": {
-    "cursor-api-readonly": {
+    "cursor-api": {
       "command": "uv",
       "args": [
         "run",
         "--directory",
-        "/Users/phillipchaffee/git/cursor-api-readonly-mcp",
-        "cursor-api-readonly-mcp"
+        "/ABS/PATH/TO/cursor-api-mcp",
+        "cursor-api-mcp",
+        "--read-only"
       ],
       "env": {
         "CURSOR_API_KEY": "crsr_YOUR_KEY_HERE"
@@ -52,20 +54,86 @@ Merge into `~/.cursor/mcp.json` (do not replace existing servers):
 }
 ```
 
-Then reload MCP in Cursor Settings → MCP. Verify with a prompt like
-“call get_api_key_info” or “list my cloud agents”.
+**Full read/write** — omit `--read-only` / `CURSOR_API_READ_ONLY`:
 
-## Safety model
+```json
+{
+  "mcpServers": {
+    "cursor-api": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "/ABS/PATH/TO/cursor-api-mcp",
+        "cursor-api-mcp"
+      ],
+      "env": {
+        "CURSOR_API_KEY": "crsr_YOUR_KEY_HERE"
+      }
+    }
+  }
+}
+```
 
-- Tool surface: only list/get/query helpers; no write tools.
-- Credentials: use a scoped key; never commit `.env` or paste keys into chat.
-- Rate limits: Admin ~20/min for many routes; `/v1/repositories` is especially
-  strict (~1/min). Prefer caching and avoid polling loops.
+Reload MCP in Cursor Settings → MCP after editing.
 
-## Docs
+## Tools
 
-- [Cursor APIs overview](https://cursor.com/docs/api)
-- [Cloud Agents endpoints](https://cursor.com/docs/cloud-agent/api/endpoints)
-- [Admin API](https://cursor.com/docs/account/teams/admin-api)
-- [Organization Admin API](https://cursor.com/docs/account/organizations/organization-admin-api)
-- [MCP in Cursor](https://cursor.com/docs/mcp)
+### Always available (read / query)
+
+| Tool | API |
+|------|-----|
+| `get_api_key_info` | `GET /v1/me` |
+| `list_models` | `GET /v1/models` |
+| `list_repositories` | `GET /v1/repositories` |
+| `list_agents` / `get_agent` | `GET /v1/agents` |
+| `list_agent_runs` / `get_agent_run` | `GET /v1/agents/{id}/runs` |
+| `get_agent_usage` | `GET /v1/agents/{id}/usage` |
+| `list_agent_artifacts` | `GET /v1/agents/{id}/artifacts` |
+| `list_team_members` | `GET /teams/members` |
+| `get_audit_logs` | `GET /teams/audit-logs` |
+| `get_daily_usage_data` | `POST /teams/daily-usage-data` (query) |
+| `get_spending_data` | `POST /teams/spend` (query) |
+| `get_usage_events` | `POST /teams/filtered-usage-events` (query) |
+| `list_team_repo_blocklists` | `GET /settings/repo-blocklists/repos` |
+| `list_billing_groups` / `get_billing_group` | `GET /teams/groups` |
+| `list_organization_members` | `GET /organizations/members` |
+
+### Write tools (disabled with `--read-only`)
+
+| Tool | API |
+|------|-----|
+| `create_agent` | `POST /v1/agents` |
+| `create_agent_run` | `POST /v1/agents/{id}/runs` |
+| `cancel_agent_run` | `POST .../runs/{runId}/cancel` |
+| `archive_agent` / `unarchive_agent` | `POST .../archive` / `unarchive` |
+| `delete_agent` | `DELETE /v1/agents/{id}` |
+| `create_worker_token` | `POST /v1/sub-tokens` |
+| `set_user_spend_limit` | `POST /teams/user-spend-limit` |
+| `remove_team_member` | `POST /teams/remove-member` |
+| `upsert_repo_blocklists` / `delete_repo_blocklist` | blocklist mutate |
+| `create_billing_group` / `update_billing_group` / `delete_billing_group` | groups |
+| `add_billing_group_members` / `remove_billing_group_members` | group members |
+| `sync_organization_team_memberships` | `POST /organizations/team-memberships/sync` |
+
+Cloud Agents tools work with a **user API key** on all plans. Team Admin and
+Organization tools need **Enterprise** keys with the right scopes
+(e.g. `members:read` for org membership reads).
+
+## Safety
+
+- Prefer `--read-only` unless you need mutations.
+- Use the narrowest API key scope that covers your tools.
+- Never commit `.env` or paste API keys into chat / git.
+- `/v1/repositories` is rate-limited (~1/min); avoid polling loops.
+
+## Development
+
+```bash
+uv sync --extra dev
+uv run pytest
+```
+
+## License
+
+MIT

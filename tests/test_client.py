@@ -7,7 +7,7 @@ import base64
 import httpx
 import pytest
 
-from cursor_api_readonly_mcp.client import CursorApiClient, CursorApiError
+from cursor_api_mcp.client import CursorApiClient, CursorApiError
 
 
 def test_missing_api_key_raises(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -41,10 +41,29 @@ def test_get_sends_basic_auth(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_error_response_raises_cursor_api_error(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_request(self: httpx.Client, method: str, url: str, **kwargs: object) -> httpx.Response:
-        return httpx.Response(403, json={"error": "Forbidden", "message": "Enterprise access required"})
+        return httpx.Response(
+            403,
+            json={"error": "Forbidden", "message": "Enterprise access required"},
+        )
 
     monkeypatch.setattr(httpx.Client, "request", fake_request)
     client = CursorApiClient(api_key="crsr_test")
     with pytest.raises(CursorApiError, match="Enterprise access required") as exc_info:
         client.get("/teams/members")
     assert exc_info.value.status_code == 403
+
+
+def test_delete_and_patch_methods(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+
+    def fake_request(self: httpx.Client, method: str, url: str, **kwargs: object) -> httpx.Response:
+        calls.append(method)
+        if method == "DELETE":
+            return httpx.Response(204)
+        return httpx.Response(200, json={"patched": True})
+
+    monkeypatch.setattr(httpx.Client, "request", fake_request)
+    client = CursorApiClient(api_key="crsr_test")
+    assert client.delete("/v1/agents/bc-1") == {"ok": True, "status_code": 204}
+    assert client.patch_json("/teams/groups/g1", body={"name": "x"}) == {"patched": True}
+    assert calls == ["DELETE", "PATCH"]

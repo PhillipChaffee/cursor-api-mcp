@@ -1,4 +1,4 @@
-"""HTTP client for the Cursor API (read paths only)."""
+"""HTTP client for the Cursor API."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ class CursorApiError(RuntimeError):
 
 
 class CursorApiClient:
-    """Thin Basic-auth client that only issues GET and read-query POSTs."""
+    """Thin Basic-auth client for Cursor HTTP APIs."""
 
     def __init__(
         self,
@@ -58,9 +58,29 @@ class CursorApiClient:
         path: str,
         *,
         body: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
     ) -> Any:
-        """POST JSON for read-only query endpoints that require a body."""
-        return self._request("POST", path, json_body=body or {})
+        """POST JSON to a Cursor API path."""
+        return self._request("POST", path, params=params, json_body=body or {})
+
+    def patch_json(
+        self,
+        path: str,
+        *,
+        body: dict[str, Any] | None = None,
+    ) -> Any:
+        """PATCH JSON to a Cursor API path."""
+        return self._request("PATCH", path, json_body=body or {})
+
+    def delete(
+        self,
+        path: str,
+        *,
+        body: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> Any:
+        """DELETE a Cursor API path."""
+        return self._request("DELETE", path, params=params, json_body=body)
 
     def _request(
         self,
@@ -97,5 +117,5 @@ class CursorApiClient:
                 pass
             raise CursorApiError(response.status_code, message)
         if response.status_code == 204 or not response.content:
-            return {}
+            return {"ok": True, "status_code": response.status_code}
         return response.json()
