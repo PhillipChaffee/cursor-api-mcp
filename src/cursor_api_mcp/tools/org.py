@@ -6,6 +6,7 @@ from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 
+from cursor_api_mcp.path_safety import require_path_segment
 from cursor_api_mcp.tools._common import client, error_payload, parse_json_list
 
 
@@ -151,7 +152,8 @@ def register_org_read_tools(mcp: MCPServer) -> None:
             group_id: Organization group id (g_...).
         """
         try:
-            return client().get(f"/organizations/groups/{group_id}")
+            safe_id = require_path_segment(group_id, field_name="group_id")
+            return client().get(f"/organizations/groups/{safe_id}")
         except Exception as exc:
             return error_payload(exc)
 
@@ -168,8 +170,9 @@ def register_org_read_tools(mcp: MCPServer) -> None:
             page_size: Members per page (default 50).
         """
         try:
+            safe_id = require_path_segment(group_id, field_name="group_id")
             return client().get(
-                f"/organizations/groups/{group_id}/members",
+                f"/organizations/groups/{safe_id}/members",
                 params={"page": page, "pageSize": page_size},
             )
         except Exception as exc:
@@ -201,11 +204,12 @@ def register_org_write_tools(mcp: MCPServer) -> None:
             user_ids_json: JSON array of user ids (max 100 per request).
         """
         try:
+            safe_id = require_path_segment(group_id, field_name="group_id")
             user_ids = parse_json_list(user_ids_json, field_name="user_ids_json")
             if not user_ids:
                 return {"error": True, "message": "user_ids_json must be a non-empty array"}
             return client().post_json(
-                f"/organizations/groups/{group_id}/members/bulk-add",
+                f"/organizations/groups/{safe_id}/members/bulk-add",
                 body={"userIds": user_ids},
             )
         except Exception as exc:
@@ -222,11 +226,12 @@ def register_org_write_tools(mcp: MCPServer) -> None:
             user_ids_json: JSON array of user ids (max 100 per request).
         """
         try:
+            safe_id = require_path_segment(group_id, field_name="group_id")
             user_ids = parse_json_list(user_ids_json, field_name="user_ids_json")
             if not user_ids:
                 return {"error": True, "message": "user_ids_json must be a non-empty array"}
             return client().post_json(
-                f"/organizations/groups/{group_id}/members/bulk-remove",
+                f"/organizations/groups/{safe_id}/members/bulk-remove",
                 body={"userIds": user_ids},
             )
         except Exception as exc:

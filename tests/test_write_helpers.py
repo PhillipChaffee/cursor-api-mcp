@@ -82,3 +82,39 @@ def test_create_agent_validation(monkeypatch: pytest.MonkeyPatch) -> None:
     body = mock_client.post_json.call_args.kwargs["body"]
     assert body["model"]["id"] == "composer-2"
     assert mock_client.post_json.call_count == 1
+
+
+async def _create_agent_run(**kwargs: Any) -> dict[str, Any]:
+    server = build_server(ServerConfig(read_only=False))
+    return _structured(await server.call_tool("create_agent_run", kwargs))
+
+
+def test_create_agent_run_images_and_extra_json(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mock_client = MagicMock()
+    mock_client.post_json.return_value = {"id": "run-1"}
+    monkeypatch.setattr(write_mod, "client", lambda: mock_client)
+
+    images = asyncio.run(
+        _create_agent_run(
+            agent_id="bc-1",
+            prompt_text="follow up",
+            prompt_images_json=[{"url": "https://example.com/a.png"}],
+        )
+    )
+    assert images == {"id": "run-1"}
+    body = mock_client.post_json.call_args.kwargs["body"]
+    assert body["prompt"]["text"] == "follow up"
+    assert body["prompt"]["images"] == [{"url": "https://example.com/a.png"}]
+
+    clash = asyncio.run(
+        _create_agent_run(
+            agent_id="bc-1",
+            prompt_text="x",
+            extra_json={"prompt": {"text": "hijack"}},
+        )
+    )
+    assert clash["error"] is True
+    assert "prompt" in clash["message"]
+    assert mock_client.post_json.call_count == 1

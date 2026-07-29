@@ -6,6 +6,7 @@ from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 
+from cursor_api_mcp.path_safety import require_path_segment
 from cursor_api_mcp.tools._common import client, error_payload
 
 
@@ -52,7 +53,8 @@ def register_fleet_tools(mcp: MCPServer) -> None:
             worker_id: Worker id (for example pw_...).
         """
         try:
-            return client().get(f"/v0/private-workers/{worker_id}")
+            safe_id = require_path_segment(worker_id, field_name="worker_id")
+            return client().get(f"/v0/private-workers/{safe_id}")
         except Exception as exc:
             return error_payload(exc)
 

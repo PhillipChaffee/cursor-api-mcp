@@ -8,6 +8,8 @@ from typing import Any
 
 import httpx
 
+from cursor_api_mcp.path_safety import assert_safe_api_path
+
 DEFAULT_BASE_URL = "https://api.cursor.com"
 DEFAULT_TIMEOUT_SECONDS = 60.0
 
@@ -18,6 +20,20 @@ class CursorApiError(RuntimeError):
     def __init__(self, status_code: int, message: str) -> None:
         self.status_code = status_code
         super().__init__(f"Cursor API {status_code}: {message}")
+
+
+def _error_message_from_response(response: httpx.Response) -> str:
+    """Prefer JSON error fields when present; otherwise use the response body."""
+    message = response.text
+    try:
+        payload = response.json()
+    except ValueError:
+        return message
+    if isinstance(payload, dict):
+        return str(payload.get("message") or payload.get("error") or payload)
+    if payload is not None:
+        return str(payload)
+    return message
 
 
 class CursorApiClient:
@@ -91,17 +107,20 @@ class CursorApiClient:
         timeout_seconds: float | None = None,
     ) -> str:
         """GET a path and return the raw response body as text."""
-        url = f"{self._base_url}{path if path.startswith('/') else f'/{path}'}"
+        normalized = path if path.startswith("/") else f"/{path}"
+        assert_safe_api_path(normalized)
+        url = f"{self._base_url}{normalized}"
         clean_params = (
             {key: value for key, value in params.items() if value is not None}
             if params
             else None
         )
         headers = {**self._headers, "Accept": accept}
-        with httpx.Client(timeout=timeout_seconds or self._timeout) as http_client:
+        timeout = self._timeout if timeout_seconds is None else timeout_seconds
+        with httpx.Client(timeout=timeout, follow_redirects=True) as http_client:
             response = http_client.get(url, headers=headers, params=clean_params)
         if response.status_code >= 400:
-            raise CursorApiError(response.status_code, response.text)
+            raise CursorApiError(response.status_code, _error_message_from_response(response))
         return response.text
 
     def _request(
@@ -112,13 +131,15 @@ class CursorApiClient:
         params: dict[str, Any] | None = None,
         json_body: dict[str, Any] | None = None,
     ) -> Any:
-        url = f"{self._base_url}{path if path.startswith('/') else f'/{path}'}"
+        normalized = path if path.startswith("/") else f"/{path}"
+        assert_safe_api_path(normalized)
+        url = f"{self._base_url}{normalized}"
         clean_params = (
             {key: value for key, value in params.items() if value is not None}
             if params
             else None
         )
-        with httpx.Client(timeout=self._timeout) as http_client:
+        with httpx.Client(timeout=self._timeout, follow_redirects=True) as http_client:
             response = http_client.request(
                 method,
                 url,
@@ -127,20 +148,10 @@ class CursorApiClient:
                 json=json_body,
             )
         if response.status_code >= 400:
-            message = response.text
-            try:
-                payload = response.json()
-            except ValueError:
-                payload = None
-            if isinstance(payload, dict):
-                message = str(
-                    payload.get("message")
-                    or payload.get("error")
-                    or payload
-                )
-            elif payload is not None:
-                message = str(payload)
-            raise CursorApiError(response.status_code, message)
+            raise CursorApiError(
+                response.status_code,
+                _error_message_from_response(response),
+            )
         if response.status_code == 204 or not response.content:
             return {"ok": True, "status_code": response.status_code}
         return response.json()

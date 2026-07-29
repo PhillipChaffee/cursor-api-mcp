@@ -67,18 +67,41 @@ def test_error_response_non_dict_json(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_get_text(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
-    def fake_get(self: httpx.Client, url: str, **kwargs: object) -> httpx.Response:
-        captured["url"] = url
-        captured["headers"] = kwargs.get("headers")
-        return httpx.Response(200, text="event: done\ndata: {}\n\n")
+    class RecordingClient:
+        def __init__(self, **kwargs: object) -> None:
+            captured["client_kwargs"] = kwargs
 
-    monkeypatch.setattr(httpx.Client, "get", fake_get)
+        def __enter__(self) -> RecordingClient:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def get(self, url: str, **kwargs: object) -> httpx.Response:
+            captured["url"] = url
+            captured["headers"] = kwargs.get("headers")
+            return httpx.Response(200, text="event: done\ndata: {}\n\n")
+
+    monkeypatch.setattr(httpx, "Client", RecordingClient)
     client = CursorApiClient(api_key="crsr_test")
     text = client.get_text("/v1/agents/bc-1/runs/run-1/stream")
     assert "event: done" in text
     headers = captured["headers"]
     assert isinstance(headers, dict)
     assert headers["Accept"] == "text/event-stream"
+    client_kwargs = captured["client_kwargs"]
+    assert isinstance(client_kwargs, dict)
+    assert client_kwargs.get("follow_redirects") is True
+
+
+def test_get_rejects_path_traversal(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_request(self: httpx.Client, method: str, url: str, **kwargs: object) -> httpx.Response:
+        raise AssertionError("HTTP request should not be sent for unsafe paths")
+
+    monkeypatch.setattr(httpx.Client, "request", fake_request)
+    client = CursorApiClient(api_key="crsr_test")
+    with pytest.raises(ValueError, match="\\.\\."):
+        client.get("/organizations/groups/../../../teams/members")
 
 
 def test_delete_and_patch_methods(monkeypatch: pytest.MonkeyPatch) -> None:

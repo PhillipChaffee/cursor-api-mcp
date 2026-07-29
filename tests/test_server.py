@@ -113,3 +113,68 @@ def test_download_agent_artifact_passes_path(
         "/v1/agents/bc-1/artifacts/download",
         params={"path": "artifacts/shot.png"},
     )
+
+
+def test_conversation_insights_requires_include(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from cursor_api_mcp.tools import analytics as analytics_mod
+
+    mock_client = MagicMock()
+    monkeypatch.setattr(analytics_mod, "client", lambda: mock_client)
+    server = build_server(ServerConfig(read_only=True))
+    result = asyncio.run(
+        server.call_tool("get_team_analytics", {"metric": "conversation-insights"})
+    )
+    structured = result.structured_content
+    assert isinstance(structured, dict)
+    assert structured["error"] is True
+    assert "include" in structured["message"]
+    mock_client.get.assert_not_called()
+
+
+def test_org_daily_usage_rejects_page_without_page_size(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from cursor_api_mcp.tools import org as org_mod
+
+    mock_client = MagicMock()
+    monkeypatch.setattr(org_mod, "client", lambda: mock_client)
+    server = build_server(ServerConfig(read_only=True))
+    result = asyncio.run(
+        server.call_tool(
+            "get_organization_daily_usage_data",
+            {
+                "organization_id": "org_1",
+                "start_date_ms": 1,
+                "end_date_ms": 2,
+                "page": 1,
+            },
+        )
+    )
+    structured = result.structured_content
+    assert isinstance(structured, dict)
+    assert structured["error"] is True
+    assert "page_size" in structured["message"]
+    mock_client.post_json.assert_not_called()
+
+
+def test_get_private_worker_rejects_traversal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from cursor_api_mcp.tools import fleet as fleet_mod
+
+    mock_client = MagicMock()
+    monkeypatch.setattr(fleet_mod, "client", lambda: mock_client)
+    server = build_server(ServerConfig(read_only=True))
+    result = asyncio.run(
+        server.call_tool(
+            "get_private_worker",
+            {"worker_id": "../../v1/me"},
+        )
+    )
+    structured = result.structured_content
+    assert isinstance(structured, dict)
+    assert structured["error"] is True
+    assert "path segment" in structured["message"]
+    mock_client.get.assert_not_called()

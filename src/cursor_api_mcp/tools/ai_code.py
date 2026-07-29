@@ -6,6 +6,7 @@ from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 
+from cursor_api_mcp.path_safety import require_path_segment
 from cursor_api_mcp.tools._common import client, error_payload
 
 
@@ -142,8 +143,13 @@ def register_ai_code_tools(mcp: MCPServer) -> None:
             branch: Optional branch name filter.
         """
         try:
+            safe_hash = require_path_segment(
+                commit_hash,
+                field_name="commit_hash",
+                allow_comma_separated=True,
+            )
             return client().get(
-                f"/analytics/ai-code/commits/{commit_hash}",
+                f"/analytics/ai-code/commits/{safe_hash}",
                 params={"branch": branch},
             )
         except Exception as exc:
