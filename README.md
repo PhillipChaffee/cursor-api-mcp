@@ -3,8 +3,9 @@
 [MCP](https://modelcontextprotocol.io/) server for the [Cursor HTTP APIs](https://cursor.com/docs/api).
 
 By default the server exposes **read and write** tools (Cloud Agents + Team/Org Admin +
-Analytics + Bugbot + AI Code Tracking + Fleet). Pass `--read-only` (or set
-`CURSOR_API_READ_ONLY=true`) to register only fetch/query tools.
+Analytics + Bugbot + AI Code Tracking + Fleet + Automations). Pass `--read-only` (or set
+`CURSOR_API_READ_ONLY=true`) to register only fetch/query tools. Add
+`--allow-automation-writes` to enable automation updates while keeping all other writes disabled.
 
 ## Install
 
@@ -27,7 +28,12 @@ CURSOR_API_KEY=crsr_... uv run cursor-api-mcp --read-only
 
 # Same via env
 CURSOR_API_KEY=crsr_... CURSOR_API_READ_ONLY=true uv run cursor-api-mcp
+
+CURSOR_API_KEY=crsr_... uv run cursor-api-mcp --read-only --allow-automation-writes
 ```
+
+`CURSOR_API_ALLOW_AUTOMATION_WRITES=true` has the same effect as `--allow-automation-writes`.
+Each flag enables its setting even when the corresponding environment variable is false.
 
 ## Cursor MCP config
 
@@ -79,6 +85,45 @@ Merge into `~/.cursor/mcp.json` (do not replace existing servers).
 Reload MCP in Cursor Settings → MCP after editing.
 
 ## Tools
+
+### Automations
+
+| Tool | Connect RPC |
+|------|-------------|
+| `get_automation` | `POST /aiserver.v1.AutomationsService/GetAutomation` |
+| `update_automation` | `POST /aiserver.v1.AutomationsService/UpdateAutomation` |
+
+Both tools take an existing `automation_id` UUID from the automation's Cursor URL or Terraform state.
+This connector has no automation listing, creation, deletion, or run-triggering tools.
+`get_automation` returns the full authorized response, including prompts, triggers, actions,
+ownership, MCP auth states, and unknown fields. A `restrictedSummary` response indicates limited access.
+Optional `team_id` selects the team for read authorization and must be a positive int32.
+
+`update_automation` accepts `name`, `description`, `enabled`, and `prompt`.
+Omitted fields stay unchanged. Empty strings and `enabled=false` are explicit edits.
+Metadata-only updates send only the selected fields.
+A prompt edit reads a fresh workflow and replaces one `prompts[prompt_index].prompt` string.
+The zero-based `prompt_index` is required when the workflow has multiple prompts.
+An index without `prompt`, an empty edit, or an incomplete or restricted read fails before any write.
+For updates, `team_id` applies only to the prompt edit's read; it is never sent to `UpdateAutomation`.
+
+The upstream API replaces the complete workflow on a prompt edit.
+The connector copies that workflow and preserves every other field, including unknown fields.
+There is no compare-and-swap protection, so concurrent edits can be overwritten.
+Writes are not retried automatically. After a failed write, inspect the automation before retrying.
+`--read-only` hides `update_automation` unless `--allow-automation-writes` or its environment setting is enabled.
+
+Automation requests use the fixed origin `https://api2.cursor.sh` and do not follow redirects.
+`CURSOR_API_BASE_URL` applies only to the other APIs.
+User keys with `key_` or `crsr_` prefixes exchange for an access token once per tool call;
+session tokens are used directly. Tokens stay in memory, and exchange responses are never returned.
+HTTP failures return a status code with a bounded message that omits the upstream body.
+
+The contract follows Cursor's Terraform provider at revision
+[`48c8203395b6bdf0043401832415903ddbc1e9ab`](https://github.com/cursor/terraform-provider-cursor/tree/48c8203395b6bdf0043401832415903ddbc1e9ab),
+specifically its [token exchange](https://github.com/cursor/terraform-provider-cursor/blob/48c8203395b6bdf0043401832415903ddbc1e9ab/internal/provider/client.go)
+and [automation messages](https://github.com/cursor/terraform-provider-cursor/blob/48c8203395b6bdf0043401832415903ddbc1e9ab/internal/proto/v1/automations.pb.go).
+Requests use unary JSON POSTs from the [Connect protocol](https://connectrpc.com/docs/protocol/).
 
 ### Cloud Agents (all plans, user API key)
 

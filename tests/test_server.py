@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from cursor_api_mcp.config import ServerConfig
-from cursor_api_mcp.server import build_server
+from cursor_api_mcp.server import build_server, main
 
 
 def test_read_only_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -73,6 +73,56 @@ def test_read_only_server_omits_write_tools() -> None:
     assert read_names < full_names
 
 
+@pytest.mark.parametrize("read_only", [False, True])
+@pytest.mark.parametrize("allow_writes", [False, True])
+def test_automation_registration_modes(read_only: bool, allow_writes: bool) -> None:
+    server = build_server(ServerConfig(read_only=read_only, allow_automation_writes=allow_writes))
+    names = {tool.name for tool in asyncio.run(server.list_tools())}
+    read_names = {
+        tool.name for tool in asyncio.run(build_server(ServerConfig(read_only=True)).list_tools())
+    }
+    assert "get_automation" in names
+    assert ("update_automation" in names) == (not read_only or allow_writes)
+    assert {"list_agents", "get_team_analytics", "list_private_workers"} <= names
+    assert (
+        not {"list_automations", "create_automation", "delete_automation", "trigger_automation"}
+        & names
+    )
+    if read_only:
+        assert names - read_names == ({"update_automation"} if allow_writes else set())
+        expected = "Only update_automation" if allow_writes else "Write tools are disabled"
+        assert expected in server.instructions
+    else:
+        assert {"create_agent", "set_user_spend_limit", "trigger_bugbot_review"} <= names
+        assert "Write tools can update automations" in server.instructions
+
+
+@pytest.mark.parametrize(
+    "argv,read_env,write_env,expected",
+    [
+        ([], "", "", ServerConfig()),
+        (["--read-only"], "", "", ServerConfig(True, False)),
+        ([], "true", "", ServerConfig(True, False)),
+        (["--allow-automation-writes"], "", "", ServerConfig(False, True)),
+        (["--read-only", "--allow-automation-writes"], "false", "false", ServerConfig(True, True)),
+        (["--read-only"], "", " YES ", ServerConfig(True, True)),
+        (["--allow-automation-writes"], "on", "", ServerConfig(True, True)),
+        ([], "1", "1", ServerConfig(True, True)),
+        ([], "false", "false", ServerConfig(False, False)),
+    ],
+)
+def test_cli_and_environment_write_gates(monkeypatch, argv, read_env, write_env, expected) -> None:
+    from cursor_api_mcp import server as server_mod
+
+    monkeypatch.setenv("CURSOR_API_READ_ONLY", read_env)
+    monkeypatch.setenv("CURSOR_API_ALLOW_AUTOMATION_WRITES", write_env)
+    factory = MagicMock()
+    monkeypatch.setattr(server_mod, "build_server", factory)
+    main(argv)
+    factory.assert_called_once_with(expected)
+    factory.return_value.run.assert_called_once_with()
+
+
 def test_team_analytics_rejects_unknown_metric(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -81,9 +131,7 @@ def test_team_analytics_rejects_unknown_metric(
     mock_client = MagicMock()
     monkeypatch.setattr(analytics_mod, "client", lambda: mock_client)
     server = build_server(ServerConfig(read_only=True))
-    result = asyncio.run(
-        server.call_tool("get_team_analytics", {"metric": "not-a-metric"})
-    )
+    result = asyncio.run(server.call_tool("get_team_analytics", {"metric": "not-a-metric"}))
     structured = result.structured_content
     assert isinstance(structured, dict)
     assert structured["error"] is True
