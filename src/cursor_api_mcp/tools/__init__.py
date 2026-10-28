@@ -2,6 +2,10 @@
 
 from cursor_api_mcp.tools.ai_code import register_ai_code_tools
 from cursor_api_mcp.tools.analytics import register_analytics_tools
+from cursor_api_mcp.tools.automations import (
+    register_automation_read_tools,
+    register_automation_write_tools,
+)
 from cursor_api_mcp.tools.bugbot import (
     register_bugbot_read_tools,
     register_bugbot_write_tools,
@@ -14,6 +18,8 @@ from cursor_api_mcp.tools.write import register_write_tools
 __all__ = [
     "register_ai_code_tools",
     "register_analytics_tools",
+    "register_automation_read_tools",
+    "register_automation_write_tools",
     "register_bugbot_read_tools",
     "register_bugbot_write_tools",
     "register_fleet_tools",
